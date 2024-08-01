@@ -1,0 +1,70 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: creating an s3 bucket and configuring access to it.
+
+Resources:
+  S3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: '#{stackName}#-bkt'
+      AccessControl: Private
+
+  IAMUser:
+    Type: AWS::IAM::User
+    Properties:
+      UserName: '#{stackName}#-bkt-user'
+
+  S3BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties: 
+      Bucket: !Ref S3Bucket
+      PolicyDocument: 
+        Version: '2012-10-17'
+        Statement: 
+          - Sid: AllowIAMUserActions
+            Effect: Allow
+            Principal: 
+              AWS: !GetAtt IAMUser.Arn
+            Action: 
+              - s3:PutObject
+              - s3:GetObject
+            Resource: 
+              - !Sub 'arn:aws:s3:::${S3Bucket}/*'
+
+  IAMUserAccessKeys:
+    Type: AWS::IAM::AccessKey
+    Properties: 
+      UserName: !Ref IAMUser
+
+  IAMUserPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: '#{stackName}#-bkt-user-policy'
+      Users: 
+        - !Ref IAMUser
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - s3:ListBucket
+            Resource:
+              - !Sub 'arn:aws:s3:::${S3Bucket}'
+          - Effect: Allow
+            Action:
+              - s3:PutObject
+              - s3:GetObject
+            Resource:
+              - !Sub 'arn:aws:s3:::${S3Bucket}/*'
+
+Outputs:
+  BucketName:
+    Description: Name of the S3 bucket
+    Value: !Ref S3Bucket
+
+  IAMUserAccessKeyId:
+    Description: Access Key ID for the IAM User
+    Value: !Ref IAMUserAccessKeys
+
+  IAMUserSecretAccessKey:
+    Description: Secret Access Key for the IAM User
+    Value: !GetAtt IAMUserAccessKeys.SecretAccessKey

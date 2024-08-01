@@ -1,0 +1,16 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: creating a RDS instance to run a postgres database.
+
+Resources: 
+  RDSDBInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceIdentifier: '#{stackName}#-rds-instance'
+      AllocatedStorage: 20
+      DBInstanceClass: db.t3.micro
+      Engine: postgres
+      MasterUsername: admin
+      MasterUserPassword: Password123
+      DBName: MyDatabase
+      # VPCSecurityGroups: [!GetAtt RDSDBSecurityGroup.GroupId]
+      PubliclyAccessible: true
