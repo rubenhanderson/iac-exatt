@@ -1,16 +1,62 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: creating a RDS instance to run a postgres database.
+Description: RDS PostgreSQL Instance Configuration
 
-Resources: 
-  RDSDBInstance:
-    Type: AWS::RDS::DBInstance
+Parameters:
+  VPCId:
+    Type: String
+    Default: vpc-04f1f9f0532cb94f6
+
+  SubnetId:
+    Type: String
+    Default: subnet-05c9e24b747aa5d57
+
+  DBSecurityGroupID:
+    Type: String
+    Default: sg-082b22b436d84510f
+
+  MasterUsername:
+    Type: String
+    Default: Exatt_USR
+
+  MasterUserPassword:
+    Type: String
+    Description: The master password for the PostgreSQL instance.
+    NoEcho: true
+    MinLength: 8
+    MaxLength: 41
+    AllowedPattern: '[a-zA-Z0-9@#$%^&*()_+-=]+'
+    ConstraintDescription: Must contain only alphanumeric characters and special characters.
+
+Resources:
+  PostgreSQLInstance:
+    Type: 'AWS::RDS::DBInstance'
     Properties:
-      DBInstanceIdentifier: '#{stackName}#-rds-instance'
-      AllocatedStorage: 20
-      DBInstanceClass: db.t3.micro
+      DBInstanceIdentifier: my-postgresql-instance
+      DBName: exatt
       Engine: postgres
-      MasterUsername: admin
-      MasterUserPassword: Password123
-      DBName: MyDatabase
-      # VPCSecurityGroups: [!GetAtt RDSDBSecurityGroup.GroupId]
-      PubliclyAccessible: true
+      EngineVersion: '13.4'
+      DBInstanceClass: db.t3.micro
+      AllocatedStorage: 20
+      MasterUsername: !Ref MasterUsername
+      MasterUserPassword: !Ref MasterUserPassword
+      VPCSecurityGroups:
+        - !Ref DBSecurityGroupID
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      PubliclyAccessible: false
+      MultiAZ: false
+      BackupRetentionPeriod: 7
+
+  DBSubnetGroup:
+    Type: 'AWS::RDS::DBSubnetGroup'
+    Properties:
+      DBSubnetGroupDescription: Subnet group for RDS instance
+      SubnetIds: !Ref SubnetId
+
+Outputs:
+  DBEndpoint:
+    Description: The endpoint address of the PostgreSQL instance
+    Value: !GetAtt PostgreSQLInstance.Endpoint.Address
+
+  DBPort:
+    Description: The port of the PostgreSQL instance
+    Value: !GetAtt PostgreSQLInstance.Endpoint.Port

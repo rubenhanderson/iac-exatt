@@ -1,34 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: ECS Cluster with Auto Scaling and ALB
-
-Parameters:
-  VpcId:
-    Description: The VPC ID where the ECS cluster will be deployed
-    Type: String
-
-  SubnetId:
-    Description: The Subnets IDs for the ECS cluster
-    Type: List<AWS::EC2::Subnet::Id>
-
-  InstanceType:
-    Description: EC2 instance type for the ECS cluster
-    Type: String
-    Default: t3.micro
-
-  DesiredCapacity:
-    Description: Desired capacity for the ECS auto-scaling group
-    Type: Number
-    Default: 2
-
-  MaxCapacity:
-    Description: Maximum capacity for the ECS auto-scaling group
-    Type: Number
-    Default: 4
-
-  MinCapacity:
-    Description: Minimum capacity for the ECS auto-scaling group
-    Type: Number
-    Default: 1
+Description: ECS Cluster and Application Load Balancer configuration
 
 Resources:
   ECSCluster:
@@ -36,131 +7,121 @@ Resources:
     Properties:
       ClusterName: MyECSCluster
 
-  EC2Role:
-    Type: AWS::IAM::Role
+  ECSTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
     Properties:
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: ec2.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role
-        - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
+      Family: ExattECSTaskDefinition
+      Cpu: 256
+      Memory: 512
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      ExecutionRoleArn: !GetAtt ECSExecutionRole.Arn
+      ContainerDefinitions:
+        - Name: nodejs-container
+          Image: <your-nodejs-api-image>
+          PortMappings:
+            - ContainerPort: 80
+          Essential: true
 
-  InstanceProfile:
-    Type: AWS::IAM::InstanceProfile
-    Properties:
-      Roles:
-        - !Ref EC2Role
-
-  LaunchTemplate:
-    Type: AWS::EC2::LaunchTemplate
-    Properties:
-      LaunchTemplateName: ECSLaunchTemplate
-      LaunchTemplateData:
-        InstanceType: !Ref InstanceType
-        IamInstanceProfile:
-          Arn: !GetAtt InstanceProfile.Arn
-        NetworkInterfaces:
-          - AssociatePublicIpAddress: true
-            SubnetId: !Select [0, !Ref SubnetIds]
-        ImageId: ami-0de53d8956e8dcf80 # Amazon ECS-optimized AMI (update to latest)
-
-  AutoScalingGroup:
-    Type: AWS::AutoScaling::AutoScalingGroup
-    Properties:
-      VPCZoneIdentifier: !Ref SubnetIds
-      LaunchTemplate:
-        LaunchTemplateId: !Ref LaunchTemplate
-        Version: !GetAtt LaunchTemplate.LatestVersionNumber
-      MinSize: !Ref MinCapacity
-      MaxSize: !Ref MaxCapacity
-      DesiredCapacity: !Ref DesiredCapacity
-      TargetGroupARNs:
-        - !Ref ALBTargetGroup
-
-  ALB:
+  LoadBalancer:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
     Properties:
-      Subnets: !Ref SubnetIds
+      Name: ApplicationLoadBalancer
+      Subnets:
+        - subnet-0b37efa8e6e91ab13
       SecurityGroups:
-        - !Ref ALBSecurityGroup
-
-  ALBSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      VpcId: !Ref VpcId
-      GroupDescription: ALB Security Group
-      SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: 80
-          ToPort: 80
-          CidrIp: 0.0.0.0/0
-
-  ALBListener:
-    Type: AWS::ElasticLoadBalancingV2::Listener
-    Properties:
-      LoadBalancerArn: !Ref ALB
-      Protocol: HTTP
-      Port: 80
-      DefaultActions:
-        - Type: forward
-          TargetGroupArn: !Ref ALBTargetGroup
+        - sg-06c64fd16d87a027d
+      Scheme: internet-facing
 
   ALBTargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
-      VpcId: !Ref VpcId
-      Port: 80
+      Name: ALBTargetGroup
       Protocol: HTTP
+      Port: 80
+      VpcId: vpc-04f1f9f0532cb94f6
+      TargetType: ip
       HealthCheckIntervalSeconds: 30
       HealthCheckPath: /
       HealthCheckProtocol: HTTP
       HealthCheckTimeoutSeconds: 5
       HealthyThresholdCount: 2
       UnhealthyThresholdCount: 2
-      TargetType: instance
 
-  ECSServiceRole:
-    Type: AWS::IAM::Role
+  HTTPListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref LoadBalancer
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: redirect
+          RedirectConfig:
+            Host: #{host}#
+            Path: /
+            Port: 443
+            Protocol: HTTPS
+            StatusCode: 'HTTP_301'
+
+  HTTPSListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref LoadBalancer
+      Port: 443
+      Protocol: HTTPS
+      CertificateArn: #{certificate_arn}#
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref ALBTargetGroup
+
+  ECSService:
+    Type: 'AWS::ECS::Service'
+    Properties:
+      Cluster: !Ref ECSCluster
+      DesiredCount: 2
+      LaunchType: FARGATE
+      TaskDefinition: !Ref ECSTaskDefinition
+      LoadBalancers:
+        - ContainerName: nodejs-container
+          ContainerPort: 80
+          TargetGroupArn: !Ref ALBTargetGroup
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets:
+            - subnet-05c9e24b747aa5d57
+          SecurityGroups:
+            - sg-0a74cfd71626a71d5
+            
+  ECSExecutionRole:
+    Type: 'AWS::IAM::Role'
     Properties:
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
           - Effect: Allow
             Principal:
-              Service: ecs.amazonaws.com
+              Service: ecs-tasks.amazonaws.com
             Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceRole
-
-  ECSService:
-    Type: AWS::ECS::Service
-    Properties:
-      Cluster: !Ref ECSCluster
-      DesiredCount: !Ref DesiredCapacity
-      LaunchType: EC2
-      TaskDefinition: !Ref ECSTaskDefinition
-      LoadBalancers:
-        - ContainerName: my-api-container
-          ContainerPort: 80
-          TargetGroupArn: !Ref ALBTargetGroup
-      Role: !Ref ECSServiceRole
-
-  ECSTaskDefinition:
-    Type: AWS::ECS::TaskDefinition
-    Properties:
-      Family: MyAPITask
-      NetworkMode: bridge
-      ContainerDefinitions:
-        - Name: my-api-container
-          Image: your-docker-image-url
-          Memory: 512
-          Cpu: 256
-          PortMappings:
-            - ContainerPort: 80
-      RequiresCompatibilities:
-        - EC2
+      Path: /
+      Policies:
+        - PolicyName: ECSExecutionPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:BatchGetImage
+                  - ecr:BatchCheckLayerAvailability
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - elasticloadbalancing:RegisterTargets
+                  - elasticloadbalancing:DeregisterTargets
+                  - elasticloadbalancing:DescribeTargetHealth
+                  - elasticloadbalancing:DescribeLoadBalancers
+                Resource: '*'
