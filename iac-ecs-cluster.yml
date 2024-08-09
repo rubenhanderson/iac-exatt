@@ -19,7 +19,7 @@ Resources:
       ExecutionRoleArn: !GetAtt ECSExecutionRole.Arn
       ContainerDefinitions:
         - Name: nodejs-container
-          Image: <your-nodejs-api-image>
+          Image: exatt/exattus:latest
           PortMappings:
             - ContainerPort: 80
           Essential: true
